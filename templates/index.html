@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Video Streaming</title>
+    </head>
+    <body>
+        <h1>Video Streaming from PiCamera</h1>
+        <button id="recordButton" onclick="toggleRecording()">Start Recording</button>
+        <p id="status">Not recording</p>
+        <img src="/video_feed">
+        <script>
+            var isRecording = false;
+            
+            var state = {
+                should_record: false,
+                recording: false,
+                recording_start_time: null,
+                recording_directory: null,
+                recording_name: null
+            }
+
+            function toggleRecording() {
+                if (!state.should_record) {
+                    startRecording();
+                } else {
+                    stopRecording();
+                }
+            }
+
+            function startRecording() {
+                // send request to /start_recording
+                fetch('/start_recording')
+                    .then(response => response.json())
+                    .then(data => {
+                        state.should_record = data.should_record;
+                        state.recording = data.recording;
+                        state.recording_start_time = data.recording_start_time;
+                        state.recording_directory = data.recording_directory;
+                        state.recording_name = data.recording_name;
+                    })
+                    .catch(error => {
+                        console.error(error);
+                    });
+                    updateUI();
+            }
+
+            function stopRecording() {
+                // send request to /stop_recording
+                fetch('/stop_recording')
+                    .then(response => response.json())
+                    .then(data => {
+                        state.should_record = data.should_record;
+                        state.recording = data.recording;
+                        state.recording_start_time = data.recording_start_time;
+                        state.recording_directory = data.recording_directory;
+                        state.recording_name = data.recording_name;
+                    })
+                    .catch(error => {
+                        console.error(error);
+                    });
+                    updateUI();
+            }
+            
+            function timeString() {
+                let difference = Date.now()/1000 - state.recording_start_time;
+                // Days if difference is greater than 1 day
+                let days = difference > 86400 ? Math.floor(difference / 86400) : 0;
+                // Hours if difference is greater than 1 hour
+                let hours = difference > 3600 ? Math.floor((difference % 86400) / 3600) : 0;
+                // Minutes if difference is greater than 1 minute
+                let minutes = difference > 60 ? Math.floor((difference % 3600) / 60) : 0;
+                // Seconds
+                let seconds = Math.floor(difference % 60);
+                // Return formatted string
+            return `${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds`;
+            }
+
+            function updateUI() {
+                // get information from /status
+                fetch('/status')
+                    .then(response => response.json())
+                    .then(data => {
+                        state.should_record = data.should_record;
+                        state.recording = data.recording;
+                        state.recording_start_time = data.recording_start_time;
+                        state.recording_directory = data.recording_directory;
+                        state.recording_name = data.recording_name;
+                    })
+                    .catch(error => {
+                        console.error(error);
+                    });
+
+                var button = document.getElementById("recordButton");
+                button.innerHTML = state.should_record ? "Stop Recording" : "Start Recording";
+
+                if (state.recording) {
+                    // calculate time since recording started
+                    let duration = new Date() - new Date(state.recording_start_time);
+                    // fill in duration
+                    document.getElementById("status").innerHTML = `Recording Duration: ${timeString(duration)}`;
+                } else if (state.combining) {
+                    document.getElementById("status").innerHTML = "Combining segments";
+                } else {
+                    document.getElementById("status").innerHTML = "Not recording";
+                }
+            }
+
+            // update UI every 0.5 seconds
+            setInterval(updateUI, 500);
+        </script>
+    </body>
+</html>
