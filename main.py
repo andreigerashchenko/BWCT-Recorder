@@ -7,13 +7,13 @@ import os
 import json
 import RPi.GPIO as GPIO
 
-import camera
+import camera_test
 import webui
 
 POWER_LED_PIN = 18
 RECORDING_LED_PIN = 12
 MOUNT_LED_PIN = 13
-POWER_BTN_PIN = 17
+POWER_BTN_PIN = 3
 RECORDING_BTN_PIN = 22
 MOUNT_BTN_PIN = 23
 PREVIEW_FRAMERATE = 30.0
@@ -57,7 +57,7 @@ if __name__ == '__main__':
     GPIO.setup(POWER_LED_PIN, GPIO.OUT)
     GPIO.setup(RECORDING_LED_PIN, GPIO.OUT)
     GPIO.setup(MOUNT_LED_PIN, GPIO.OUT)
-    # GPIO.setup(POWER_BTN_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    GPIO.setup(POWER_BTN_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
     GPIO.setup(RECORDING_BTN_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
     GPIO.setup(MOUNT_BTN_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
@@ -72,18 +72,28 @@ if __name__ == '__main__':
     state['should_record'] = False
     state['recording'] = False
     state['recording_start_time'] = None
+    state['recording_duration'] = None
     state['recording_directory'] = None
     state['combining'] = False
+    state['night'] = False
+    state['error'] = None
+    state['cam_heartbeat'] = False
+    state['web_heartbeat'] = False
     last_should_record = state['should_record']
+
+    last_cam_heartbeat = 0
+    last_web_heartbeat = 0
 
     # Start camera.camera_worker in a separate process
     camera_process = multiprocessing.Process(
-        target=camera.camera_worker, args=(PREVIEW_FRAMERATE, preview_queue, state,))
+        target=camera_test.camera_worker, args=(PREVIEW_FRAMERATE, preview_queue, state,))
     camera_process.start()
+    camera_worker_running = True
     # Start webui.web_worker in a separate process
     web_process = multiprocessing.Process(
         target=webui.web_worker, args=(PREVIEW_FRAMERATE, preview_queue, state,))
     web_process.start()
+    web_worker_running = True
 
     print("Started worker processes")
 
@@ -110,18 +120,34 @@ if __name__ == '__main__':
     if not os.path.exists(RECORDING_MAIN_DIRECTORY):
         os.makedirs(RECORDING_MAIN_DIRECTORY)
 
+    last_cam_heartbeat = time.time()
     while True:
-        # if GPIO.input(POWER_BTN_PIN) == GPIO.LOW:
-        #     if time.time() - power_btn_time >= DEBOUNCE_TIME:
-        #         power_btn_time = time.time()
-        #         if power_led_state == GPIO.HIGH:
-        #             power_led_state = GPIO.LOW
-        #         else:
-        #             power_led_state = GPIO.HIGH
-        #         GPIO.output(POWER_LED_PIN, power_led_state)
-        #         if power_led_state == GPIO.HIGH:
-        #             os.system("sudo poweroff")
-        #         time.sleep(0.5)
+        # if camera_worker_running and state['cam_heartbeat']:
+        #     last_cam_heartbeat = time.time()
+        #     state['cam_heartbeat'] = False
+        #     print("Set false")
+
+        # if camera_worker_running and int(time.time() - last_cam_heartbeat) >= 5:
+        #     camera_worker_running = False
+
+        # if not camera_worker_running:
+        #     state['should_record'] = False
+        #     state['recording'] = False
+        #     state['recording_duration'] = 0
+        #     state['error'] = "Camera worker process stopped unexpectedly, video segments may not have been merged. Please restart recording device."
+
+        if GPIO.input(POWER_BTN_PIN) == GPIO.LOW:
+            if power_led_state == GPIO.HIGH:
+                state['should_record'] = False
+                while (state['recording'] == True or state['combining'] == True) and camera_worker_running and web_worker_running:
+                    if power_led_state == GPIO.HIGH:
+                        power_led_state = GPIO.LOW
+                    else:
+                        power_led_state = GPIO.HIGH
+                    time.sleep(FAST_LED_BLINK_INTERVAL)
+                    GPIO.output(POWER_LED_PIN, power_led_state)
+                GPIO.output(POWER_LED_PIN, GPIO.HIGH)
+                os.system("poweroff")
 
         if GPIO.input(RECORDING_BTN_PIN) == GPIO.LOW:
             if time.time() - recording_btn_time >= DEBOUNCE_TIME:
@@ -173,6 +199,7 @@ if __name__ == '__main__':
 
         if state['recording'] == True:
             if time.time() - recording_led_time >= SLOW_LED_BLINK_INTERVAL:
+                state['recording_duration'] += SLOW_LED_BLINK_INTERVAL
                 recording_led_time = time.time()
                 if recording_led_state == GPIO.HIGH:
                     recording_led_state = GPIO.LOW
@@ -194,6 +221,7 @@ if __name__ == '__main__':
                 time.sleep(FAST_LED_BLINK_INTERVAL)
             recording_led_state = GPIO.HIGH
             GPIO.output(RECORDING_LED_PIN, recording_led_state)
+            state['recording_duration'] = 0
         elif state['should_record'] == False and state['recording'] == True:
             for i in range(10):
                 if recording_led_state == GPIO.HIGH:
@@ -204,4 +232,5 @@ if __name__ == '__main__':
                 time.sleep(FAST_LED_BLINK_INTERVAL)
             recording_led_state = GPIO.LOW
             GPIO.output(RECORDING_LED_PIN, recording_led_state)
+            state['recording_duration'] = 0
         time.sleep(0.1)

@@ -9,6 +9,7 @@ import logging
 PREVIEW_FRAMERATE = 1.0
 preview_queue = None
 device_state = None
+preview_frame = None
 
 app = Flask(__name__)
 log = logging.getLogger('werkzeug')
@@ -37,6 +38,7 @@ def get_preview_frame():
 
 
 def gen_frame(preview_framerate, queue):  # generate frames for video streaming
+    global preview_frame
     while True and not (preview_frame is None):
         time.sleep(1/preview_framerate)
         frame = queue.get()
