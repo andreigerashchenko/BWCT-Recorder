@@ -108,6 +108,10 @@ if __name__ == '__main__':
             mount_led_state = GPIO.HIGH
         GPIO.output(MOUNT_LED_PIN, mount_led_state)
         time.sleep(FAST_LED_BLINK_INTERVAL)
+        if GPIO.input(POWER_BTN_PIN) == GPIO.LOW:
+                state['should_record'] = False
+                GPIO.output(POWER_LED_PIN, GPIO.HIGH)
+                os.system("poweroff")
     print(F"Found mount point: {mount_point}")
     mounted = True
     mount_led_state = GPIO.HIGH
@@ -173,6 +177,7 @@ if __name__ == '__main__':
                         GPIO.output(MOUNT_LED_PIN, mount_led_state)   
                         time.sleep(FAST_LED_BLINK_INTERVAL) 
                         # Unmount with umount, checking to see whether it was successful
+                        # os.system(f"partprobe {mount_point}")
                         if os.system(F"umount {mount_point}") == 0:
                             print("Unmounted SD card")
                             mounted = False

@@ -14,8 +14,10 @@ import cv2
 DEBUG = False
 
 SEGMENT_CHUNKS = 5 # Segments to merge at a time
-#SEGMENT_LENGTH = 15 * 60 # 15 minutes * 60 seconds
-SEGMENT_LENGTH = 5
+# SEGMENT_LENGTH = 15 * 60 # 15 minutes * 60 seconds
+SEGMENT_LENGTH = 3 * 60 # 15 minutes * 60 seconds
+
+# SEGMENT_LENGTH = 5
 PREVIEW_FRAMERATE = 1.0
 RECORD_FRAMERATE = 20
 RESOLUTION = (800, 600)
@@ -265,8 +267,8 @@ def camera_worker(preview_framerate, queue, state_arg):
             print("Encoder stopped")
             segments.append(f"{state['recording_directory']}/video_{segment_count}.avi")
             segment_count += 1
-            output = FileOutput(f"{state['recording_directory']}/video_{segment_count}.avi")
             if use_night:
+                output = FfmpegOutput(f"{state['recording_directory']}/video_{segment_count}.avi")
                 night_cam.start_encoder(encoder, output, quality=Quality.HIGH)
                 night_encoder_running = True
 
@@ -357,8 +359,8 @@ def camera_worker(preview_framerate, queue, state_arg):
             print("Starting recording")
             # Directory for current recording session will have already been created
             # Start recording first segment
-            output = FfmpegOutput(f"{state['recording_directory']}/video_{segment_count}.avi")
             if use_night:
+                output = FfmpegOutput(f"{state['recording_directory']}/video_{segment_count}.avi")
                 night_cam.start_encoder(encoder, output, quality=Quality.HIGH)
                 night_encoder_running = True
             else:
@@ -372,6 +374,7 @@ def camera_worker(preview_framerate, queue, state_arg):
             last_camera = use_night
         elif not state['should_record'] and state['recording']:
             print("Stopping recording")
+            output = None
             if use_night:
                 night_cam.stop_encoder()
                 night_encoder_running = False
