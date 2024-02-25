@@ -14,11 +14,12 @@ import cv2
 DEBUG = False
 
 SEGMENT_CHUNKS = 5 # Segments to merge at a time
+
+# Segment lengths of our chunks, in seconds. variety for testing
 # SEGMENT_LENGTH = 15 * 60 # 15 minutes * 60 seconds
 # SEGMENT_LENGTH = 3 * 60 # 15 minutes * 60 seconds
+SEGMENT_LENGTH = 20 # in seconds
 
-SEGMENT_LENGTH = 20
-PREVIEW_FRAMERATE = 1.0
 # This can only the framerate the usb camera supports at the set resolution.
 RECORD_FRAMERATE = 20
 # This can only be a resolution supported by the usb camera.
@@ -432,6 +433,7 @@ def camera_worker(preview_framerate, queue, state_arg):
             print("Encoder stopped")
             segments.append(f"{state['recording_directory']}/video_{segment_count}.avi")
             state['recording'] = False
+            state['recording_directory'] = None # set it only once we're finished writing to that directory
             should_combine = True
         time.sleep(0.1)
 

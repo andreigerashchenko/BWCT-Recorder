@@ -29,6 +29,10 @@ Authors:
 - Andrei Gerashchenko
 - Raif Olson
 - Wending Wu
+
+TODO:
+- Make button pushes work with interrupts
+- Draw a state diagram for the program and rewrite it according to that
 """
 
 import multiprocessing
@@ -57,12 +61,13 @@ FAST_LED_BLINK_INTERVAL = 0.1
 SLOW_LED_BLINK_INTERVAL = 1.0
 DEBOUNCE_TIME = 0.25
 RECORDING_MAIN_DIRECTORY = "/recordings"
+RECORDING_SESSION_DIRECTORY_FORMAT = "%Y%m%d-%H%M%S"
 
 def get_mount_point():
     """
     Get a list of all storage devices and find the mount point path of the first removable media
     Input: None
-    Returns: None if no SD card is found, otherwise returns the mount point path as a string
+    Returns: None if no SD card/removable media is found, otherwise returns the mount point path as a string
     """
     
     # Get list of storage devices and the partitions on them
@@ -110,11 +115,11 @@ if __name__ == '__main__':
     GPIO.output(RECORDING_LED_PIN, recording_led_state)
     GPIO.output(MOUNT_LED_PIN, mount_led_state)
 
-    # Threading manager
+    # Pass frames from Camera to Web UI
     preview_queue = multiprocessing.Queue()
-    manager = multiprocessing.Manager()
 
     # Use shared dictionary to store device state
+    manager = multiprocessing.Manager()
     state = manager.dict()
     state['should_record'] = False
     state['recording'] = False
@@ -166,7 +171,6 @@ if __name__ == '__main__':
 
     # Set the recording directory to the first SD card mount point
     RECORDING_MAIN_DIRECTORY = mount_point + RECORDING_MAIN_DIRECTORY
-
     # Create the recording directory if it doesn't exist
     if not os.path.exists(RECORDING_MAIN_DIRECTORY):
         os.makedirs(RECORDING_MAIN_DIRECTORY)
@@ -251,7 +255,7 @@ if __name__ == '__main__':
                             mount_led_state = GPIO.HIGH
                             GPIO.output(MOUNT_LED_PIN, mount_led_state)
 
-
+        # Controller for recording LED
         if state['recording'] == True:
             if time.time() - recording_led_time >= SLOW_LED_BLINK_INTERVAL:
                 state['recording_duration'] += SLOW_LED_BLINK_INTERVAL
@@ -261,13 +265,15 @@ if __name__ == '__main__':
                 else:
                     recording_led_state = GPIO.HIGH
                 GPIO.output(RECORDING_LED_PIN, recording_led_state)
-        # Detected that recording must be started but we're not recording yet. Start up stuff
+
+        # Switch when we detect mismatch of recording and should_record states, aka recording toggle
+        ## Detected that recording must be started but we're not recording yet. Start up stuff
         if state['should_record'] == True and state['recording'] == False:
             # Make a new directory for this set of recordings
             os.makedirs(
-                F"{RECORDING_MAIN_DIRECTORY}/{time.strftime('%Y%m%d-%H%M%S')}")
+                F"{RECORDING_MAIN_DIRECTORY}/{time.strftime(RECORDING_SESSION_DIRECTORY_FORMAT)}")
 
-            state['recording_directory'] = F"{RECORDING_MAIN_DIRECTORY}/{time.strftime('%Y%m%d-%H%M%S')}"
+            state['recording_directory'] = F"{RECORDING_MAIN_DIRECTORY}/{time.strftime(RECORDING_SESSION_DIRECTORY_FORMAT)}"
             for i in range(10):
                 if recording_led_state == GPIO.HIGH:
                     recording_led_state = GPIO.LOW
@@ -278,7 +284,7 @@ if __name__ == '__main__':
             recording_led_state = GPIO.HIGH
             GPIO.output(RECORDING_LED_PIN, recording_led_state)
             state['recording_duration'] = 0
-        # Detected that recording must be stopped but we're still recording, clean up
+        ## Detected that recording must be stopped but we're still recording, clean up
         elif state['should_record'] == False and state['recording'] == True:
             for i in range(10):
                 if recording_led_state == GPIO.HIGH:
@@ -290,5 +296,4 @@ if __name__ == '__main__':
             recording_led_state = GPIO.LOW
             GPIO.output(RECORDING_LED_PIN, recording_led_state)
             state['recording_duration'] = 0
-            state['recording_directory'] = None
         time.sleep(0.1)
