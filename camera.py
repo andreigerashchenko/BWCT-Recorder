@@ -15,12 +15,12 @@ DEBUG = False
 
 SEGMENT_CHUNKS = 5 # Segments to merge at a time
 # SEGMENT_LENGTH = 15 * 60 # 15 minutes * 60 seconds
-SEGMENT_LENGTH = 3 * 60 # 15 minutes * 60 seconds
+# SEGMENT_LENGTH = 3 * 60 # 15 minutes * 60 seconds
 
-# SEGMENT_LENGTH = 5
+SEGMENT_LENGTH = 20
 PREVIEW_FRAMERATE = 1.0
 # This can only the framerate the usb camera supports at the set resolution.
-RECORD_FRAMERATE = 30
+RECORD_FRAMERATE = 20
 # This can only be a resolution supported by the usb camera.
 RESOLUTION = (800, 600)
 SWITCH_CHECK_INTERVAL = SEGMENT_LENGTH / 3
@@ -38,6 +38,7 @@ latest_frame_queue = None
 latest_frame = None
 last_camera_check = 0
 fourcc = None
+frame_id = 0
 
 class DayCam:
     def __init__(self, device_index=0, resolution=(1280, 720), framerate=30):
@@ -58,6 +59,7 @@ class DayCam:
         self.capture_thread = threading.Thread(target=self.capture_loop)
         self.capture_thread.daemon = True
         self.busy = False
+        self.frame_id = 0
         
     def capture_loop(self):
         while self.is_capturing:
@@ -68,6 +70,10 @@ class DayCam:
                     self.busy = True
                     self.video_writer.write(frame)
                     self.busy = False
+                    # increment the global recording frame id
+                    self.frame_id += 1
+                else:
+                    self.frame_id = 0
                 
     def start_capture(self):
         self.is_capturing = True
@@ -97,6 +103,10 @@ class DayCam:
     def get_latest_frame(self):
         # Return the latest frame captured by the capture thread
         return self.frame
+    
+    def get_frame_id(self):
+        # Return he current recording frame count
+        return self.frame_id
 
 
 
@@ -143,7 +153,7 @@ def update_frame():
         time.sleep(1/PREVIEW_FRAMERATE)
 
 def frame_is_dark(frame):
-    # do some analysis to see if the frame is too dark
+    """This function checks if the green channel of the image is below a certain threshold"""
     # check if the average pixel value is below a certain threshold
     avg_pixel = cv2.mean(frame)
     # Dark camera is IR, so only use green channel for average pixel value
@@ -153,6 +163,12 @@ def frame_is_dark(frame):
         return True
     else:
         return False
+
+def night_camera_callback(request):
+    """Checks if the night camera encoder is running and if it is, increments the frame count"""
+    global night_encoder_running, frame_id
+    if night_encoder_running:
+        frame_id += 1
 
 def camera_init():
     global RESOLUTION, PREVIEW_FRAMERATE, day_cam, day_cfg, lock, latest_frame_queue, encoder, night_cam, night_cfg, latest_frame, use_night, last_camera_check, fourcc
@@ -166,6 +182,8 @@ def camera_init():
     # Set up VideoWriter for recording with the same resolution and framerate as DayCam
     fourcc = cv2.VideoWriter_fourcc(*'MJPG') # try with h264 fourcc
     print("Created encoder")
+    # Attach the frame counter callback to the night camera.
+    night_cam.pre_callback = night_camera_callback
     night_cam.start()
     print("Started camera")
     index = 0
@@ -189,10 +207,13 @@ def camera_init():
 #         state['cam_hearbeat'] = True
 #         print("Set true")
 
+
+
+
 def camera_worker(preview_framerate, queue, state_arg):
     print(F"Starting camera worker with preview framerate: {preview_framerate}")
     # Initialize the camera and worker process
-    global RESOLUTION, PREVIEW_FRAMERATE, day_cam, day_cfg, lock, latest_frame_queue, encoder, night_cam, night_cfg, latest_frame, use_night, last_camera_check, fourcc, state
+    global RESOLUTION, PREVIEW_FRAMERATE, day_cam, day_cfg, lock, latest_frame_queue, encoder, night_cam, night_cfg, latest_frame, use_night, last_camera_check, fourcc, state, night_encoder_running, frame_id
     PREVIEW_FRAMERATE = preview_framerate
     latest_frame_queue = queue
     state = state_arg
@@ -217,24 +238,21 @@ def camera_worker(preview_framerate, queue, state_arg):
     should_combine = False
     last_camera = use_night
     night_encoder_running = False
+    frame_id = 0
+
+
     while True:
         # Check if the camera should be switched
         if time.time() - last_camera_check >= SWITCH_CHECK_INTERVAL and latest_frame is not None:
             # Check latest_frame to see if it's too dark
-            # TODO when you change from dark to light, write to a file that records the frame ID of the switch so Raif's script knows when to switch color processing
-            # TODO you have to add a counter to keep track of frame ID. can't use timestamp bc that assumes constant frame times which is not guaranteed
-            """
-            TODO: File Format Definition
-            Each column is defined as: frameID, state after this frame (night/day)
-            The first line should always be frame 0, day/night.
-            Then whenever we do a switch, write a new line to this file with the frame id and the state.
-            """
+
             if frame_is_dark(latest_frame):
                 use_night = True
                 state['night'] = True
             else:
                 use_night = False
                 state['night'] = False
+                
             last_camera_check = time.time()
 
         if last_camera != use_night and state['recording']: # Camera has switched
@@ -244,6 +262,7 @@ def camera_worker(preview_framerate, queue, state_arg):
 
             if use_night:
                 print("Switching to night camera")
+                frame_id += day_cam.get_frame_id()
                 day_cam.stop_recording()
                 output = FfmpegOutput(f"{state['recording_directory']}/video_{segment_count}.avi")
                 # print("created new encoder")
@@ -263,6 +282,19 @@ def camera_worker(preview_framerate, queue, state_arg):
                 video_writer.set(cv2.CAP_PROP_FPS, RECORD_FRAMERATE)
                 print(f"daytime camera recording started: {state['recording_directory']}/video_{segment_count}.avi")
                 day_cam.start_recording(video_writer)
+
+            # TODO when you change from dark to light, write to a file that records the frame ID of the switch so Raif's script knows when to switch color processing
+            # TODO you have to add a counter to keep track of frame ID. can't use timestamp bc that assumes constant frame times which is not guaranteed
+            """
+            TODO: File Format Definition
+            Each column is defined as: frameID, state after this frame (night/day)
+            The first line should always be frame 0, day/night.
+            Then whenever we do a switch, write a new line to this file with the frame id and the state.
+            """
+            if state['recording']:
+                with open(day_night_file_path, "a") as f:
+                    f.write(f"{frame_id},{use_night}\n")
+
             segment_start_time = time.time()
             last_camera = use_night
 
@@ -367,6 +399,13 @@ def camera_worker(preview_framerate, queue, state_arg):
             while state['recording_directory'] is None:
                 time.sleep(0.1)
             print("Starting recording")
+            # Reset the frame_id so when starting new recording
+            frame_id = 0
+            # Setup new day/night file
+            day_night_file_path = f"{state['recording_directory']}/day_night.csv"
+            with open(day_night_file_path, "w") as f:
+                f.write("frame_id,night_true\n")
+                f.write(f"{frame_id},{use_night}\n")
             # Directory for current recording session will have already been created
             # Start recording first segment
             if use_night:
