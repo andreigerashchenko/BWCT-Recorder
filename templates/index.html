@@ -6,25 +6,93 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BWCT Recording Device Control</title>
     <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='css/bootstrap.min.css')  }}">
+    <!-- <link rel="stylesheet" type="text/css" href="../static/css/bootstrap.min.css"> -->
 </head>
 
-<body>
-    <h1 class="text-center">BWCT Recording Device Control</h1>
-    <div class="d-flex justify-content-center mt-3">
-        <button type="button" id="recordButton" class="btn btn-success mx-2" onclick="toggleRecording()">Start
-            Recording</button>
-    </div>
-    <div class="d-flex justify-content-center mt-2">
+<body class="vh-100 vw-100 position-relative d-flex flex-column">
+    <div class="container flex-fill d-flex flex-column">
+        <div id="error-toast" class="toast position-absolute start-50 translate-middle-x" role="alert"
+            aria-live="assertive" aria-atomic="true" style="top: 25% !important;">
+            <!-- <div class="toast-header text-center">
+              <strong class="fs-5">Error</strong>
+            </div> -->
+            <div class="toast-body text-center fs-6" id="error-message">
+
+            </div>
+        </div>
+
+        <!-- <h1 class="text-center">BWCT Recording Device Control</h1> -->
+        <div class="d-flex justify-content-center">
+            <div class="m-4 flex-grow">
+                <img class="mw-100" src="/video_feed" alt="Video loading, refresh page if this takes too long.">
+            </div>
+        </div>
+        <div class="d-flex justify-content-center my-3">
+            <button type="button" id="mountButton" class="btn btn-warning mx-2" onclick="toggleMount()">Mount SD
+                Card</button>
+            <button type="button" id="recordButton" class="btn btn-success mx-2" onclick="toggleRecording()">Start
+                Recording</button>
+        </div>
+        <!-- <div class="d-flex justify-content-center mt-2">
         <p id="camera" class="mx-1">Using day camera</p>
         <p> | </p>
         <p id="status" class="mx-1">Not recording</p>
+    </div> -->
+        <table class="table">
+            <!-- <thead>
+          <tr>
+            <th scope="col">First</th>
+            <th scope="col">Handle</th>
+          </tr>
+        </thead> -->
+            <tbody>
+                <tr>
+                    <th scope="row">Recording</th>
+                    <td id="recording-state" class="text-end">No</td>
+                </tr>
+                <tr>
+                    <th scope="row">SD Card Mounted</th>
+                    <td id="sd-mounted" class="text-end">No</td>
+                </tr>
+
+            </tbody>
+            <tbody class="table-group-divider">
+                <tr>
+                    <th scope="row">SD Card Capacity</th>
+                    <td id="sd-capacity" class="text-end">Card not mounted</td>
+                </tr>
+            </tbody>
+            <tbody>
+                <tr>
+                    <th scope="row">Camera Mode</th>
+                    <td id="camera-mode" class="text-end">Day</td>
+                </tr>
+                <tr>
+                    <th scope="row">Recording Duration</th>
+                    <td id="recording-duration" class="text-end">Not recording</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="flex-fill"></div>
+
+        <div class="d-flex justify-content-center m-2">
+            <button type="button" id="powerButton" class="btn btn-danger mx-2" onclick="shutdown()">Shut Down</button>
+            <button type="button" id="rebootButton" class="btn btn-danger mx-2" onclick="reboot()">Restart
+                Device</button>
+        </div>
+
     </div>
-    <div class="d-flex justify-content-center">
-        <img src="/video_feed" style="max-width: 100%;">
-    </div>
+
     <script src="{{ url_for('static', filename='js/bootstrap.min.js')  }}"></script>
+    <!-- <script src="../static/js/bootstrap.min.js"></script> -->
     <script>
         var isRecording = false;
+
+        // Initialize toast
+        var error_toast = new bootstrap.Toast(document.getElementById("error-toast"), {
+            autohide: false
+        });
 
         var state = {
             should_record: false,
@@ -36,6 +104,11 @@
             combining: false,
             night: false,
             error: undefined,
+            mounted: false,
+            sd_use: 0.0,
+            shutdown_requested: false,
+            reboot_requested: false,
+            mount_requested: false
         }
 
         function updateState(data) {
@@ -48,6 +121,11 @@
             state.combining = data.combining;
             state.night = data.night;
             state.error = data.error;
+            state.mounted = data.mounted;
+            state.sd_use = data.sd_use;
+            state.shutdown_requested = data.shutdown_requested;
+            state.reboot_requested = data.reboot_requested;
+            state.mount_requested = data.mount_requested;
         }
 
         function toggleRecording() {
@@ -60,28 +138,26 @@
 
         function startRecording() {
             // send request to /start_recording
-            fetch('/start_recording')
-                .then(response => response.json())
-                .then(data => {
-                    updateState(data);
-                })
-                .catch(error => {
-                    console.error(error);
-                });
-            updateUI();
+            fetch('/start_recording');
         }
 
         function stopRecording() {
             // send request to /stop_recording
-            fetch('/stop_recording')
-                .then(response => response.json())
-                .then(data => {
-                    updateState(data);
-                })
-                .catch(error => {
-                    console.error(error);
-                });
-            updateUI();
+            fetch('/stop_recording');
+        }
+
+        function shutdown() {
+            // send request to /shutdown
+            fetch('/shutdown');
+        }
+
+        function reboot() {
+            // send request to /reboot
+            fetch('/reboot');
+        }
+
+        function toggleMount() {
+                fetch('/mount_sd');
         }
 
         function timeString(duration) {
@@ -96,51 +172,107 @@
             // Seconds
             let seconds = Math.floor(difference % 60);
             // Return formatted string
-            return `${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds`;
+            // return `${days} days, ${hours} hours, ${minutes} minutes, ${seconds} seconds`;
+            // format as DD:HH:MM:SS
+            return `${days.toString().padStart(2, '0')}:${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
         }
 
-        function updateUI() {
-            // get information from /status
+        function getStatus() {
             fetch('/status')
                 .then(response => response.json())
                 .then(data => {
                     updateState(data);
+                    updateUI(true);
                 })
                 .catch(error => {
                     console.error(error);
+                    updateUI(false);
                 });
+        }
+
+        function updateUI(success) {
+            if (!success) {
+                // Show error toast
+                document.getElementById("error-message").innerHTML = "Reconnecting to recording device...";
+                // Add class bg-warning to toast if not already present
+                if (!error_toast._element.classList.contains("bg-warning")) {
+                    error_toast._element.classList.add("bg-warning");
+                }
+                if (!error_toast.isShown()) {
+                    error_toast.show();
+                }
+                return;
+            } else {
+                // Hide error toast
+                if (error_toast.isShown()) {
+                    error_toast.hide();
+                }
+                // Remove class bg-warning from toast if present
+                if (error_toast._element.classList.contains("bg-warning")) {
+                    error_toast._element.classList.remove("bg-warning");
+                }
+            }
 
             var button = document.getElementById("recordButton");
-            button.innerHTML = state.should_record ? "Stop Recording" : "Start Recording";
+            if (state.should_record && button.innerHTML != "Stop Recording") {
+                button.innerHTML = "Stop Recording";
+                console.log("Updated recording button text")
+            }
+            if (!state.should_record && button.innerHTML != "Start Recording") {
+                button.innerHTML = "Start Recording";
+                console.log("Updated recording button text")
+            }
 
             if (state.recording) {
                 // calculate time since recording started
                 // let duration = new Date() - new Date(state.recording_start_time);
                 // fill in duration
                 // document.getElementById("status").innerHTML = `Recording for: ${timeString(duration)}`;
-                document.getElementById("status").innerHTML = `Recording for: ${timeString(state.recording_duration)}`;
+                document.getElementById("recording-state").innerHTML = `Recording`;
+                document.getElementById("recording-duration").innerHTML = timeString(state.recording_duration);
+                document.getElementById("mountButton").disabled = true;
             }
             if (state.combining) {
-                document.getElementById("status").innerHTML = "Combining segments, please wait...";
+                document.getElementById("recording-state").innerHTML = "Combining segments, please wait...";
             }
             if (!state.recording && !state.combining) {
-                document.getElementById("status").innerHTML = "Not recording";
+                document.getElementById("recording-state").innerHTML = "Not recording";
+                document.getElementById("recording-duration").innerHTML = "Not recording";
+                document.getElementById("mountButton").disabled = false;
             }
-            
+
             if (state.night) {
-                document.getElementById("camera").innerHTML = "Using night camera";
+                document.getElementById("camera-mode").innerHTML = "Night";
             } else {
-                document.getElementById("camera").innerHTML = "Using day camera";
+                document.getElementById("camera-mode").innerHTML = "Day";
             }
 
             if (state.error != undefined) {
-                document.getElementById("status").innerHTML = state.error;
+                document.getElementById("recording-state").innerHTML = state.error;
             }
+
+            if (state.mounted) {
+                document.getElementById("sd-mounted").innerHTML = "Yes";
+                document.getElementById("sd-capacity").innerHTML = `${state.sd_use.toFixed(2)}% used`;
+                document.getElementById("mountButton").innerHTML = "Unmount SD Card";
+                document.getElementById("recordButton").disabled = false;
+                document.getElementById("sd-capacity").innerHTML = `${100.0 - state.sd_use.toFixed(2)}% available`;
+            } else {
+                document.getElementById("sd-mounted").innerHTML = "No";
+                document.getElementById("sd-capacity").innerHTML = "Card not mounted";
+                document.getElementById("mountButton").innerHTML = "Mount SD Card";
+                document.getElementById("recordButton").disabled = true;
+            }
+
+            if (state.mount_requested) {
+                document.getElementById("mountButton").disabled = true;
+            } else {
+                document.getElementById("mountButton").disabled = false;
+            }
+
         }
-
-
         // update UI every 0.5 seconds
-        setInterval(updateUI, 500);
+        setInterval(getStatus, 500);
     </script>
 </body>
 
