@@ -1,0 +1,4 @@
+# RPi.GPIO
+# picamera2
+# opencv-python
+# flask
