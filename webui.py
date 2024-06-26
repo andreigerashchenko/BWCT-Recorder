@@ -75,5 +75,24 @@ def get_status():
     global device_state
     return jsonify(device_state.copy())
 
+@app.route('/shutdown')
+def shutdown():
+    global device_state
+    device_state['shutdown_requested'] = True
+    return jsonify(device_state.copy())
+
+@app.route('/reboot')
+def reboot():
+    global device_state
+    device_state['reboot_requested'] = True
+    return jsonify(device_state.copy())
+
+@app.route('/mount_sd')
+def mount_sd():
+    global device_state
+    device_state['mount_requested'] = True
+    return jsonify(device_state.copy())
+
+
 if __name__ == '__main__':
     print("This is the web worker module, and should not be run directly.")

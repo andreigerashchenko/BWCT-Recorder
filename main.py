@@ -131,6 +131,11 @@ if __name__ == '__main__':
     state['error'] = None
     state['cam_heartbeat'] = False
     state['web_heartbeat'] = False
+    state['mounted'] = False
+    state['sd_use'] = 0.0
+    state['shutdown_requested'] = False
+    state['reboot_requested'] = False
+    state['mount_requested'] = False
     last_should_record = state['should_record']
 
     # Start camera.camera_worker in a separate process
@@ -166,6 +171,7 @@ if __name__ == '__main__':
                 os.system("poweroff")
     print(F"Found mount point: {mount_point}")
     mounted = True
+    state['mounted'] = True
     mount_led_state = GPIO.HIGH
     GPIO.output(MOUNT_LED_PIN, mount_led_state)
 
@@ -192,7 +198,7 @@ if __name__ == '__main__':
         #     state['error'] = "Camera worker process stopped unexpectedly, video segments may not have been merged. Please restart recording device."
 
         # Control for Power Button
-        if GPIO.input(POWER_BTN_PIN) == GPIO.LOW:
+        if GPIO.input(POWER_BTN_PIN) == GPIO.LOW or state['shutdown_requested'] == True:
             if power_led_state == GPIO.HIGH:
                 state['should_record'] = False
                 while (state['recording'] == True or state['combining'] == True) and camera_worker_running and web_worker_running:
@@ -203,7 +209,22 @@ if __name__ == '__main__':
                     time.sleep(FAST_LED_BLINK_INTERVAL)
                     GPIO.output(POWER_LED_PIN, power_led_state)
                 GPIO.output(POWER_LED_PIN, GPIO.HIGH)
-                os.system("poweroff")
+                os.system("shutdown now")
+            state['shutdown_requested'] = False
+
+        if state['reboot_requested'] == True:
+            if power_led_state == GPIO.HIGH:
+                state['should_record'] = False
+                while (state['recording'] == True or state['combining'] == True) and camera_worker_running and web_worker_running:
+                    if power_led_state == GPIO.HIGH:
+                        power_led_state = GPIO.LOW
+                    else:
+                        power_led_state = GPIO.HIGH
+                    time.sleep(FAST_LED_BLINK_INTERVAL)
+                    GPIO.output(POWER_LED_PIN, power_led_state)
+                GPIO.output(POWER_LED_PIN, GPIO.HIGH)
+                os.system("reboot now")
+            state['reboot_requested'] = False
 
         # Control for Recording Button
         if GPIO.input(RECORDING_BTN_PIN) == GPIO.LOW:
@@ -212,7 +233,7 @@ if __name__ == '__main__':
                 state['should_record'] = not state['should_record']
 
         # Control for Mount Button
-        if GPIO.input(MOUNT_BTN_PIN) == GPIO.LOW:
+        if GPIO.input(MOUNT_BTN_PIN) == GPIO.LOW or state['mount_requested'] == True:
             if time.time() - mount_btn_time >= DEBOUNCE_TIME:
                 mount_btn_time = time.time()
 
@@ -235,25 +256,33 @@ if __name__ == '__main__':
                         if os.system(F"umount {mount_point}") == 0:
                             print("Unmounted SD card")
                             mounted = False
+                            state['mounted'] = False
                             mount_point = None
                             mount_led_state = GPIO.LOW
                             GPIO.output(MOUNT_LED_PIN, mount_led_state)
                 else:
+                    print("Mounting SD card")
                     # Mount SD card if not mounted
-                    while not mounted:
+                    while mount_point is None:
+                        mount_point = get_mount_point()
                         if mount_led_state == GPIO.HIGH:
                             mount_led_state = GPIO.LOW
                         else:
                             mount_led_state = GPIO.HIGH
                         GPIO.output(MOUNT_LED_PIN, mount_led_state)
                         time.sleep(FAST_LED_BLINK_INTERVAL)
-                        if mount_point is None:
-                            mount_point = get_mount_point()
-                        else:
-                            print("Mounted SD card")
-                            mounted = True
-                            mount_led_state = GPIO.HIGH
-                            GPIO.output(MOUNT_LED_PIN, mount_led_state)
+                    print("Mounted SD card")
+                    mounted = True
+                    state['mounted'] = True
+                    mount_led_state = GPIO.HIGH
+                    GPIO.output(MOUNT_LED_PIN, mount_led_state)
+                    # Set the recording directory to the first SD card mount point
+                    RECORDING_MAIN_DIRECTORY = mount_point + RECORDING_MAIN_DIRECTORY
+                    # Create the recording directory if it doesn't exist
+                    if not os.path.exists(RECORDING_MAIN_DIRECTORY):
+                        os.makedirs(RECORDING_MAIN_DIRECTORY)
+                
+                state['mount_requested'] = False
 
         # Controller for recording LED
         if state['recording'] == True:
@@ -296,4 +325,11 @@ if __name__ == '__main__':
             recording_led_state = GPIO.LOW
             GPIO.output(RECORDING_LED_PIN, recording_led_state)
             state['recording_duration'] = 0
+        
+        ## Use df to get the usage of the SD card, stripping percentage sign
+        # df -h | grep mount_point | awk '{print $5}' | sed 's/%//'
+        sd_use = os.popen(F"df -h | grep {mount_point} | awk '{{print $5}}' | sed 's/%//'").read()
+        if sd_use is not None and sd_use != '': 
+            state['sd_use'] = float(sd_use)
+        
         time.sleep(0.1)
