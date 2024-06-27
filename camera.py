@@ -78,7 +78,6 @@ nighttime_output_params = {
 class DayCam:
     def __init__(self, device_index=0, resolution=(1280, 720), framerate=30):
         print("before day cam init")
-        # self.cap = cv2.VideoCapture(device_index, cv2.CAP_V4L2)
         options = {
             # "queue": True,
             # "buffer_count": 4,
@@ -92,13 +91,7 @@ class DayCam:
         }
         self.cap = CamGear(source=device_index, logging=True, **options)
         print("after day cam init")
-        # self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
-        # self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
-        # self.cap.set(cv2.CAP_PROP_FPS, framerate)
-        # fourcc = cv2.VideoWriter_fourcc(*'MJPG')
 
-        # self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-        print("configured day cam")
         self.is_recording = False
         self.is_capturing = False
         self.frame = None
@@ -111,7 +104,6 @@ class DayCam:
     def capture_loop(self):
         while self.is_capturing:
             frame = self.cap.read()
-            # print(frame)
             if frame is not None:
 
                 self.frame = frame
@@ -128,7 +120,6 @@ class DayCam:
         self.is_capturing = True
         print("start capture")
         self.cap.start()
-        # print(self.cap.read())
         if not self.capture_thread.is_alive():
             self.capture_thread = threading.Thread(target=self.capture_loop)
             self.capture_thread.start()
@@ -145,7 +136,6 @@ class DayCam:
         if self.video_writer is not None:
             while self.busy:
                 pass
-            # self.video_writer.release()  # Properly close the video file for opencv
             self.video_writer.close() # Properly close the video file for vidGear
             print("released video writer")
 
@@ -165,7 +155,6 @@ class DayCam:
 class NightCam:
     def __init__(self, device_index=0, resolution=(1280, 720), framerate=30):
         print("before night cam init")
-        # self.cap = cv2.VideoCapture(device_index, cv2.CAP_V4L2)
         night_cfg = {
             "queue": True,
             "buffer_count": 4,
@@ -173,15 +162,6 @@ class NightCam:
         self.cap = PiGear(camera_num=device_index, resolution=resolution, framerate=framerate, logging=True, **night_cfg) # the CSI2 camera
 
         print("after night cam init")
-        # self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
-        # self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
-        # self.cap.set(cv2.CAP_PROP_FPS, framerate)
-        # fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-
-        # self.cap.set(cv2.CAP_PROP_FOURCC, fourcc)
-
-
-        print("configured night cam")
         self.is_recording = False
         self.is_capturing = False
         self.frame = None
@@ -194,9 +174,7 @@ class NightCam:
     def capture_loop(self):
         while self.is_capturing:
             frame= self.cap.read()
-            # print(frame)
             if frame is not None:
-                # print(frame)
                 self.frame = frame
                 if self.is_recording and self.video_writer is not None:
                     self.busy = True
@@ -206,8 +184,6 @@ class NightCam:
                     self.frame_id += 1
                 else:
                     self.frame_id = 0
-
-                # time.sleep(1/RECORD_FRAMERATE)
 
                 
     def start_capture(self):
@@ -273,16 +249,11 @@ def update_frame():
             if use_night:
                 # Assuming night_cam still uses Picamera2 methods
                 # Adjust accordingly if you also replace night_cam with a similar class to DayCam
-                # data = io.BytesIO()
-                # night_cam.capture_file(data, format='jpeg')
-                # latest_frame = night_cam.capture_array()
                 latest_frame = night_cam.get_latest_frame()
-                # print(latest_frame)
                 if latest_frame is not None:
                     latest_frame = cv2.cvtColor(latest_frame, cv2.COLOR_BGR2RGB)
                     frame = cv2.imencode('.jpg', latest_frame)[1].tobytes()
                     latest_frame_queue.put(frame)
-                    # print(latest_frame_queue)
             else:
                 # Use DayCam's method to get the latest frame
                 latest_frame = day_cam.get_latest_frame()
@@ -404,8 +375,6 @@ def camera_worker(preview_framerate, queue, state_arg):
 
     while True:
         # Check if the camera should be switched
-        # print(latest_frame)
-        # print(use_night)
         if time.time() - last_camera_check >= SWITCH_CHECK_INTERVAL and latest_frame is not None:
             # Check latest_frame to see if it's too dark
             print("Check brightness")
@@ -428,38 +397,25 @@ def camera_worker(preview_framerate, queue, state_arg):
                 print("Switching to night camera")
                 frame_id += day_cam.get_frame_id()
                 day_cam.stop_recording()
-                # day_cam.stop_capture()
-                # for the vidGear
 
                 output_video_name = f"{state['recording_directory']}/video_{segment_count}.mp4"
                 night_video_writer = WriteGear(output=output_video_name, compression_mode=True, logging=True, **nighttime_output_params)
 
-                # output = FfmpegOutput(f"{state['recording_directory']}/video_{segment_count}.avi")
-                # print("created new encoder")
                 if not night_encoder_running:
-                    # night_cam.start_encoder(encoder, output, quality=Quality.HIGH)
                     night_encoder_running = True
-                # night_cam.start_capture()
                 night_cam.start_recording(night_video_writer)
                 print(f"night time camera recording started: {output_video_name}")
 
             else:
                 print("Switching to day camera")
-                # night_cam.stop_encoder()
                 night_encoder_running = False
                 frame_id += night_cam.get_frame_id()
                 night_cam.stop_recording()
-                # night_cam.stop_capture()
 
                 # Set up VideoWriter for recording with the same resolution and framerate as DayCam
-
-
-                # video_writer = cv2.VideoWriter(f"{state['recording_directory']}/video_{segment_count}.avi", fourcc, RECORD_FRAMERATE, RESOLUTION)  # Adjust filename, codec, and parameters as needed
-                # video_writer.set(cv2.CAP_PROP_FPS, RECORD_FRAMERATE)
                 output_video_name = f"{state['recording_directory']}/video_{segment_count}.mp4"
                 video_writer = WriteGear(output=output_video_name, compression_mode=True, logging=True, **daytime_output_params)
                 print(f"daytime camera recording started: {output_video_name}")
-                # day_cam.start_capture()
                 day_cam.start_recording(video_writer)
 
             # TODO when you change from dark to light, write to a file that records the frame ID of the switch so Raif's script knows when to switch color processing
@@ -479,9 +435,7 @@ def camera_worker(preview_framerate, queue, state_arg):
 
         if state['recording'] and (time.time() - segment_start_time) >= SEGMENT_LENGTH:
             print("Segment length reached")
-            # cam.stop_recording()
             if use_night:
-                # night_cam.stop_encoder()
                 night_cam.stop_recording()
                 night_encoder_running = False
             else:
@@ -492,19 +446,10 @@ def camera_worker(preview_framerate, queue, state_arg):
             if use_night:
                 output_video_name = f"{state['recording_directory']}/video_{segment_count}.mp4"
                 night_video_writer = WriteGear(output=output_video_name, compression_mode=True, logging=True, **nighttime_output_params)
-
-                # output = FfmpegOutput(f"{state['recording_directory']}/video_{segment_count}.avi")
-                # print("created new encoder")
-                # if not night_encoder_running:
-                    # night_cam.start_encoder(encoder, output, quality=Quality.HIGH)
-                    # night_encoder_running = True
                 night_cam.start_recording(night_video_writer)
 
             else:
                 # Set up VideoWriter for recording with the same resolution and framerate as DayCam
-
-                # video_writer = cv2.VideoWriter(f"{state['recording_directory']}/video_{segment_count}.avi", fourcc, RECORD_FRAMERATE, RESOLUTION)  # Adjust filename, codec, and parameters as needed
-                # video_writer.set(cv2.CAP_PROP_FPS, RECORD_FRAMERATE)
                 output_video_name = f"{state['recording_directory']}/video_{segment_count}.mp4"
                 video_writer = WriteGear(output=output_video_name, compression_mode=True, logging=True, **daytime_output_params)
                 print(f"daytime camera recording started: {output_video_name}")
@@ -604,18 +549,11 @@ def camera_worker(preview_framerate, queue, state_arg):
                 output_video_name = f"{state['recording_directory']}/video_{segment_count}.mp4"
                 night_video_writer = WriteGear(output=output_video_name, compression_mode=True, logging=True, **nighttime_output_params)
 
-                # output = FfmpegOutput(f"{state['recording_directory']}/video_{segment_count}.avi")
-                # print("created new encoder")
-                # if not night_encoder_running:
-                    # night_cam.start_encoder(encoder, output, quality=Quality.HIGH)
-                    # night_encoder_running = True
                 night_cam.start_recording(night_video_writer)
                 print(f"nighttime camera recording started: {output_video_name}")
             else:
                 # Set up VideoWriter for recording with the same resolution and framerate as DayCam
 
-                # video_writer = cv2.VideoWriter(f"{state['recording_directory']}/video_{segment_count}.avi", fourcc, RECORD_FRAMERATE, RESOLUTION)  # Adjust filename, codec, and parameters as needed
-                # video_writer.set(cv2.CAP_PROP_FPS, RECORD_FRAMERATE)
                 output_video_name = f"{state['recording_directory']}/video_{segment_count}.mp4"
                 video_writer = WriteGear(output=output_video_name, compression_mode=True, logging=True, **daytime_output_params)
                 day_cam.start_recording(video_writer)
@@ -623,7 +561,6 @@ def camera_worker(preview_framerate, queue, state_arg):
     
             state['recording_start_time'] = time.time()
             segment_start_time = time.time()
-            # print(F"Encoder started, recording to {state['recording_directory']}/video_{segment_count}.mp4")
             state['recording'] = True
             last_camera = use_night
         elif not state['should_record'] and state['recording']:
